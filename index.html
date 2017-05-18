@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box;}
+      body { font: 13px Helvetica, Arial;}
+      form { padding: 3px; position: fixed; bottom: 0; width: 100%; border-top: 1px solid;}
+      form span { border: 1px; }
+      form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+      #isTyping { padding: 3px; position: fixed; bottom: 45px; margin-left: 10%; color: DimGray}
+      #u { border: 0; padding: 0px; width: 8%; margin-left: .5%; }
+      #m { border: 0; padding: 0px; width: 80%; margin-right: .5%; }
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages li { padding: 5px 10px; }
+      #messages li div:first-child { width: 75px; font-weight: bold; display: inline-block; }
+      #messages li div:nth-child(2) { display: inline-block; }
+      #usersPanel { width:15%; right:0; height: 93.5%; }
+      .whisper { color:FireBrick }
+    </style>
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+  </head>
+  <body>
+    <div class="w3-sidebar w3-bar-block w3-card-2" id="usersPanel">
+      <h5 class="w3-bar-item">Users</h5>
+    </div>
+    <ul id="messages"></ul>
+    <div id="isTyping"></div>
+    <form action="">
+      <span><input id="u" />><input id="m" autocomplete="off" /></span><button>Send</button>
+    </form>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+    <script>
+      var user
+      var messageIndex = 0
+      $(function () {
+        var socket = io();
+        $('form').submit(function(){
+          var $m = $('#m')
+          if($m.val().trim() == ''){
+            return false
+          }
+          else if($m.val() === "/help"){
+            //helpCommand()
+          }
+          else if($m.val().startsWith("/w")){
+            whisperCommand(socket)
+          }
+          else if($m.val().startsWith("/room")){
+            //todo
+          }
+          else if($m.val().startsWith("/invite")){
+            //todo
+          }
+          else{
+            socket.emit('chat message', user, $m.val())
+            addMessage(user, $m.val())
+          }
+          $m.val('')
+          socket.emit('typing', user, false)
+          messageIndex = 0
+          return false
+        })
+        $('#u').focusout(function(){
+          if($(this).val() !== user){
+            socket.emit('username', user, $(this).val())
+          }
+        })
+        $('#m').on('input', function(){
+          if($(this).val()){
+            socket.emit('typing', user, true)
+          }
+          else{
+            socket.emit('typing', user, false)
+          }
+          messageIndex = 0
+        })
+        $('#m').keydown(function(e){
+          if(e.which === 38){
+            messageIndex++
+            var myMessages = []
+            $($('.username').get().reverse()).each(function(){
+              if($(this).text() === user){
+                myMessages.push($(this).next().text())
+              }
+            })
+            console.log(myMessages)
+            $('#m').val(myMessages[messageIndex-1])
+          }
+        })
+
+        socket.on('chat message', function(user, msg){
+          addMessage(user, msg)
+        })
+        socket.on('whisper', function(user, msg){
+          addMessage(user, msg, ["whisper"])
+        })
+        socket.on('typing', function(user, status){
+          if(status){
+            $('#isTyping').text(user + " is typing").show()
+          }
+          else{
+            $('#isTyping').hide()
+          }
+        })
+        socket.on('new user', function(name, users){
+          if(!user){
+            $('#u').val(name)
+            user = name
+          }
+          var $message = $('<li>').text('You have joined the room as "'+name+'"').css('color', 'DimGray')
+          $('#messages').append($message)
+          for(i=0;i<users.length;i++){
+            $('#usersPanel').append('<a href="#" class="w3-bar-item w3-button">'+users[i].name+'</a>')
+          }
+        })
+        socket.on('user status', function(name, status){
+          var $message = $('<li>').text(name + " has "+status+" the room").css('color', 'DimGray')
+          $('#messages').append($message)
+          if(status === "joined"){
+            $('#usersPanel').append('<a href="#" class="w3-bar-item w3-button">'+name+'</a>')
+          }
+          else{
+            $('#usersPanel a:contains("'+name+'")').remove()
+          }
+        })
+        socket.on('username', function(oldName, newName){
+          if(user === oldName){
+            user = newName
+          }
+          updateName(oldName, newName)
+        })
+        socket.on('name taken', function(name){
+          var $message = $('<li>').text('The name "'+name+'" is already taken. Please enter a different name').css('color', 'DimGray')
+          $('#messages').append($message)
+        })
+      })
+
+      var addMessage = function(name, msg, classes = []){
+        var $message = $('<li>').append($('<div>').text(name).addClass('username')).append('> ').append($('<div>').text(msg))
+        if($('#messages li:last-child div:first-child').text() === name){
+          $message.children('.username').css('visibility', 'hidden')
+        }
+        if(name === user){
+          $message.css('background', '#eee')
+        }
+        for(i=0;i<classes.length;i++){
+          $message.addClass(classes[i])
+        }
+        //$message.addClass("whisper")
+        $('#messages').append($message)
+      }
+      var updateName = function(oldName, newName){
+        $('.username').each(function(){
+          if($(this).text() === oldName){
+            $(this).text(newName)
+          }
+        })
+        $('#usersPanel a:contains("'+oldName+'")').text(newName)
+        var $message = $('<li>').text(oldName + " is now "+newName).css('color', 'DimGray')
+        $('#messages').append($message)
+      }
+      var whisperCommand = function(socket){
+        var $m = $('#m')
+        var msg = $m.val().substring(2).trim().split(" ")
+        if(msg.length < 2){
+          var $message = $('<li>').text('Invalid whisper command').css('color', 'DimGray')
+          $('#messages').append($message)
+          return false
+        }
+        else{
+          socket.emit('whisper', user, msg)
+        }
+        addMessage("to "+ msg[0], msg.splice(1).join(" "), ["whisper"])
+        //color
+      }
+    </script>
+  </body>
+</html>
